@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Jon Jones - Space Belt Hunter</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000;
+        }
+        canvas {
+            border: 1px solid #000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="1200" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Load images
+        const jonesImg = new Image();
+        jonesImg.src = 'jon-jones.png';
+        const beltImg = new Image();
+        beltImg.src = 'UFC-Belt.png';
+        const blartImg = new Image();
+        blartImg.src = 'paul-blart.png';
+        const womanImg = new Image();
+        womanImg.src = 'woman.png';
+        const godsTestImg = new Image();
+        godsTestImg.src = 'gods-test.png';
+        const steroidsImg = new Image();
+        steroidsImg.src = 'steroids.png';
+        const danaWhiteImg = new Image();
+        danaWhiteImg.src = 'dana-white.png';
+        const endGameImg = new Image();
+        endGameImg.src = 'end-game.png';
+
+        // Jon (player)
+        const jones = {
+            x: 100,
+            y: 450,
+            width: 180,
+            height: 180,
+            speed: 5,
+            invincible: false,
+            invincibleTime: 0
+        };
+
+        // Game state
+        let score = 0;
+        let keys = { left: false, right: false, space: false };
+        let lasers = [];
+        let enemies = [];
+        let obstacles = [];
+        let powerUps = [];
+        let belts = [];
+        let bosses = [];
+        let bossHits = 0;
+        let gameOver = false;
+        let gameWon = false;
+        let endGameTimer = 0;
+
+        // Keyboard input
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = true;
+            if (e.key === 'ArrowRight') keys.right = true;
+            if (e.key === ' ') keys.space = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = false;
+            if (e.key === 'ArrowRight') keys.right = false;
+            if (e.key === ' ') keys.space = false;
+        });
+
+        // Draw helper
+        function drawRect(x, y, width, height, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, width, height);
+        }
+
+        // Collision detection
+        function collides(a, b) {
+            return a.x < b.x + b.width &&
+                   a.x + a.width > b.x &&
+                   a.y < b.y + b.height &&
+                   a.y + a.height > b.y;
+        }
+
+        // Random generation
+        function randomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function spawnEnemy(type) {
+            const img = type === 'blart' ? blartImg : womanImg;
+            const size = type === 'blart' ? 90 : 120;
+            return {
+                x: randomInt(0, canvas.width - size),
+                y: -size,
+                width: size,
+                height: size,
+                speed: randomInt(2, 4),
+                type: type,
+                shootTimer: randomInt(60, 120) // Shoots every 1-2s
+            };
+        }
+
+        function spawnObstacle() {
+            return {
+                x: randomInt(0, canvas.width - 90),
+                y: -90,
+                width: 90,
+                height: 90,
+                speedX: randomInt(-3, 3), // Weaves side-to-side
+                speedY: randomInt(2, 4)
+            };
+        }
+
+        function spawnBelt() {
+            return {
+                x: randomInt(0, canvas.width - 60),
+                y: -60,
+                width: 60,
+                height: 60,
+                speed: randomInt(2, 4),
+                collected: false
+            };
+        }
+
+        function spawnPowerUp() {
+            return {
+                x: randomInt(0, canvas.width - 60),
+                y: -60,
+                width: 60,
+                height: 60,
+                speed: randomInt(2, 4),
+                collected: false
+            };
+        }
+
+        function spawnBosses() {
+            bosses = [
+                { x: canvas.width / 4, y: 50, width: 120, height: 120, speed: 3, health: 3 },
+                { x: canvas.width / 2, y: 50, width: 120, height: 120, speed: 3, health: 3 },
+                { x: 3 * canvas.width / 4, y: 50, width: 120, height: 120, speed: 3, health: 3 }
+            ];
+            enemies = [];
+            obstacles = [];
+            powerUps = [];
+            belts = [];
+            lasers = [];
+        }
+
+        // Game loop
+        function update() {
+            if (gameOver) {
+                ctx.fillStyle = '#ff0000';
+                ctx.font = '90px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+            if (gameWon) {
+                ctx.fillStyle = '#00ff00';
+                ctx.font = '90px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Congratulations Jon!', canvas.width / 2, canvas.height / 2);
+                endGameTimer += 1 / 60;
+                if (endGameTimer >= 5 && endGameImg.complete) {
+                    ctx.drawImage(endGameImg, 0, 0, canvas.width, canvas.height);
+                    return;
+                }
+                requestAnimationFrame(update);
+                return;
+            }
+
+            // Clear canvas with space backdrop
+            ctx.fillStyle = '#000033';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < 100; i++) {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(randomInt(0, canvas.width), randomInt(0, canvas.height), 2, 2); // Stars
+            }
+
+            // Move Jon
+            if (keys.left && jones.x > 0) jones.x -= jones.speed;
+            if (keys.right && jones.x < canvas.width - jones.width) jones.x += jones.speed;
+
+            // Shoot lasers
+            if (keys.space && lasers.length < 10) { // Limit laser spam
+                lasers.push({ x: jones.x + jones.width / 2 - 5, y: jones.y - 20, width: 10, height: 20, speed: 10 });
+                keys.space = false; // One shot per press
+            }
+
+            // Handle invincibility
+            if (jones.invincible) {
+                jones.invincibleTime -= 1 / 60;
+                if (jones.invincibleTime <= 0) jones.invincible = false;
+            }
+
+            // Draw Jon
+            if (jonesImg.complete) {
+                ctx.drawImage(jonesImg, jones.x, jones.y, jones.width, jones.height);
+            } else {
+                drawRect(jones.x, jones.y, jones.width, jones.height, '#fff');
+            }
+
+            // Lasers
+            lasers = lasers.filter(l => l.y > -l.height);
+            lasers.forEach(l => {
+                l.y -= l.speed;
+                drawRect(l.x, l.y, l.width, l.height, '#ffffff');
+            });
+
+            // Boss logic
+            if (score >= 10 && bosses.length === 0) {
+                spawnBosses();
+            }
+
+            if (bosses.length > 0) {
+                bosses.forEach(b => {
+                    b.x += b.speed * (Math.random() > 0.5 ? 1 : -1); // Zigzag
+                    if (b.x < 0) b.x = 0;
+                    if (b.x > canvas.width - b.width) b.x = canvas.width - b.width;
+                    if (jonesImg.complete) {
+                        ctx.drawImage(danaWhiteImg, b.x, b.y, b.width, b.height);
+                    } else {
+                        drawRect(b.x, b.y, b.width, b.height, '#ff8000');
+                    }
+                    lasers.forEach((l, i) => {
+                        if (collides(l, b)) {
+                            b.health--;
+                            lasers.splice(i, 1);
+                            if (b.health <= 0) {
+                                b.x = -1000;
+                                bossHits++;
+                                if (bossHits >= 3) gameWon = true;
+                            }
+                        }
+                    });
+                    if (collides(jones, b) && !jones.invincible) {
+                        score -= 1;
+                        if (score < 0) gameOver = true;
+                    }
+                });
+                bosses = bosses.filter(b => b.x + b.width > 0);
+            } else {
+                // Enemies
+                if (Math.random() < 0.02) enemies.push(spawnEnemy(Math.random() < 0.5 ? 'blart' : 'woman'));
+                enemies = enemies.filter(e => e.y < canvas.height);
+                enemies.forEach(e => {
+                    e.y += e.speed;
+                    e.shootTimer--;
+                    if (e.shootTimer <= 0) {
+                        enemies.push({ x: e.x + e.width / 2 - 5, y: e.y + e.height, width: 10, height: 10, speed: 5, type: 'bullet' });
+                        e.shootTimer = randomInt(60, 120);
+                    }
+                    if (e.type === 'blart' && blartImg.complete) {
+                        ctx.drawImage(blartImg, e.x, e.y, e.width, e.height);
+                    } else if (e.type === 'woman' && womanImg.complete) {
+                        ctx.drawImage(womanImg, e.x, e.y, e.width, e.height);
+                    } else if (e.type === 'bullet') {
+                        drawRect(e.x, e.y, e.width, e.height, '#ff0000');
+                    } else {
+                        drawRect(e.x, e.y, e.width, e.height, e.type === 'blart' ? '#8b4513' : '#006400');
+                    }
+                    lasers.forEach((l, i) => {
+                        if (collides(l, e) && e.type !== 'bullet') {
+                            enemies.splice(enemies.indexOf(e), 1);
+                            lasers.splice(i, 1);
+                        }
+                    });
+                    if (collides(jones, e) && !jones.invincible && e.type !== 'bullet') {
+                        score -= 1;
+                        enemies.splice(enemies.indexOf(e), 1);
+                        if (score < 0) gameOver = true;
+                    }
+                });
+
+                // Obstacles (gods-test.png)
+                if (Math.random() < 0.01) obstacles.push(spawnObstacle());
+                obstacles = obstacles.filter(o => o.y < canvas.height);
+                obstacles.forEach(o => {
+                    o.x += o.speedX;
+                    o.y += o.speedY;
+                    if (o.x < 0) o.x = 0;
+                    if (o.x > canvas.width - o.width) o.x = canvas.width - o.width;
+                    if (godsTestImg.complete) {
+                        ctx.drawImage(godsTestImg, o.x, o.y, o.width, o.height);
+                    } else {
+                        drawRect(o.x, o.y, o.width, o.height, '#ff00ff');
+                    }
+                    if (collides(jones, o) && !jones.invincible) {
+                        score -= 1;
+                        obstacles.splice(obstacles.indexOf(o), 1);
+                        if (score < 0) gameOver = true;
+                    }
+                });
+
+                // Power-Ups (steroids.png)
+                if (Math.random() < 0.005) powerUps.push(spawnPowerUp());
+                powerUps = powerUps.filter(p => !p.collected && p.y < canvas.height);
+                powerUps.forEach(p => {
+                    p.y += p.speed;
+                    if (steroidsImg.complete) {
+                        ctx.drawImage(steroidsImg, p.x, p.y, p.width, p.height);
+                    } else {
+                        drawRect(p.x, p.y, p.width, p.height, '#00ffff');
+                    }
+                    if (collides(jones, p)) {
+                        p.collected = true;
+                        jones.invincible = true;
+                        jones.invincibleTime = 5;
+                    }
+                });
+
+                // UFC Belts
+                if (Math.random() < 0.02) belts.push(spawnBelt());
+                belts = belts.filter(b => !b.collected && b.y < canvas.height);
+                belts.forEach(b => {
+                    b.y += b.speed;
+                    if (beltImg.complete) {
+                        ctx.drawImage(beltImg, b.x, b.y, b.width, b.height);
+                    } else {
+                        drawRect(b.x, b.y, b.width, b.height, '#ff0000');
+                    }
+                    if (collides(jones, b)) {
+                        b.collected = true;
+                        score += 1;
+                    }
+                });
+            }
+
+            // Score
+            ctx.fillStyle = '#fff';
+            ctx.font = '30px Arial';
+            ctx.fillText(`Belts: ${score}`, 15, 45);
+
+            requestAnimationFrame(update);
+        }
+
+        update();
+    </script>
+</body>
+</html>
