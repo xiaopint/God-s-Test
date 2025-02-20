@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Jon Jones Desert Run V28</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000;
+        }
+        canvas {
+            border: 1px solid #000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="1200" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Load images
+        const jonesImg = new Image();
+        jonesImg.src = 'jon-jones.png';
+        const bgImg = new Image();
+        bgImg.src = 'desert-bg.png';
+        const beltImg = new Image();
+        beltImg.src = 'UFC-Belt.png';
+        const blartImg = new Image();
+        blartImg.src = 'paul-blart.png';
+        const womanImg = new Image();
+        womanImg.src = 'woman.png';
+        const godsTestImg = new Image();
+        godsTestImg.src = 'gods-test.png';
+        const steroidsImg = new Image();
+        steroidsImg.src = 'steroids.png';
+        const danaWhiteImg = new Image();
+        danaWhiteImg.src = 'dana-white.png';
+        const endGameImg = new Image();
+        endGameImg.src = 'end-game.png';
+
+        // Jon object
+        const jones = {
+            x: 200,
+            y: 420,
+            width: 180,
+            height: 180,
+            speed: 5,
+            vy: 0,
+            gravity: 0.5,
+            jump: -14,
+            grounded: false,
+            invincible: false,
+            invincibleTime: 0
+        };
+
+        const ground = { y: 510, height: 90, color: '#d2b48c' };
+        const worldWidth = 6000;
+        let cameraX = 0;
+
+        let obstacles = [
+            { x: 400, y: 390, width: 120, height: 120 }
+        ];
+
+        let belts = [
+            { x: 500, y: 350, width: 60, height: 60, collected: false }
+        ];
+
+        let enemies = [
+            { x: 450, y: 420, width: 90, height: 90 }
+        ];
+
+        let traps = [
+            { x: 600, y: 420, width: 90, height: 90 }
+        ];
+
+        let powerUps = [
+            { x: 700, y: 350, width: 60, height: 60, collected: false }
+        ];
+
+        let bosses = [];
+        let bossHits = 0;
+        let score = 0;
+        let keys = { left: false, right: false, up: false };
+        let lastObstacleX = 400;
+        let lastEnemyX = 450;
+        let lastTrapX = 600;
+        let lastPowerUpX = 700;
+        let gameOver = false;
+        let gameWon = false;
+        let endGameTimer = 0;
+
+        // Keyboard input
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = true;
+            if (e.key === 'ArrowRight') keys.right = true;
+            if (e.key === 'ArrowUp' && jones.grounded) keys.up = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = false;
+            if (e.key === 'ArrowRight') keys.right = false;
+            if (e.key === 'ArrowUp') keys.up = false;
+        });
+
+        // Draw helper
+        function drawRect(x, y, width, height, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, width, height);
+        }
+
+        // Collision detection
+        function collides(a, b) {
+            return a.x < b.x + b.width &&
+                   a.x + a.width > b.x &&
+                   a.y < b.y + b.height &&
+                   a.y + a.height > b.y;
+        }
+
+        // Random generation with spacing
+        function randomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function spawnObstacle() {
+            const minGap = 200;
+            let newX = Math.max(lastObstacleX + minGap, jones.x + canvas.width + randomInt(100, 300));
+            for (let e of enemies) {
+                if (Math.abs(newX - e.x) < 100) newX = e.x + 100 + randomInt(50, 150);
+            }
+            for (let t of traps) {
+                if (Math.abs(newX - t.x) < 100) newX = t.x + 100 + randomInt(50, 150);
+            }
+            lastObstacleX = newX;
+            return {
+                x: newX,
+                y: ground.y - 120,
+                width: 120,
+                height: 120
+            };
+        }
+
+        function spawnBelt() {
+            const newX = jones.x + canvas.width + randomInt(100, 400);
+            return {
+                x: newX,
+                y: randomInt(200, 450),
+                width: 60,
+                height: 60,
+                collected: false
+            };
+        }
+
+        function spawnEnemy() {
+            const minGap = 250;
+            const newX = Math.max(lastEnemyX + minGap, jones.x + canvas.width + randomInt(200, 500));
+            lastEnemyX = newX;
+            return {
+                x: newX,
+                y: ground.y - 90,
+                width: 90,
+                height: 90
+            };
+        }
+
+        function spawnTrap() {
+            const minGap = 250;
+            let newX = Math.max(lastTrapX + minGap, jones.x + canvas.width + randomInt(200, 500));
+            for (let o of obstacles) {
+                if (Math.abs(newX - o.x) < 100) newX = o.x + 100 + randomInt(50, 150);
+            }
+            lastTrapX = newX;
+            return {
+                x: newX,
+                y: ground.y - 90,
+                width: 90,
+                height: 90
+            };
+        }
+
+        function spawnPowerUp() {
+            const minGap = 400;
+            const newX = Math.max(lastPowerUpX + minGap, jones.x + canvas.width + randomInt(300, 600));
+            lastPowerUpX = newX;
+            return {
+                x: newX,
+                y: randomInt(200, 450),
+                width: 60,
+                height: 60,
+                collected: false
+            };
+        }
+
+        function spawnBosses() {
+            bosses = [
+                { x: 5400, y: ground.y - 120, width: 120, height: 120, speed: 5 },
+                { x: 5600, y: ground.y - 120, width: 120, height: 120, speed: 5 },
+                { x: 5800, y: ground.y - 120, width: 120, height: 120, speed: 5 }
+            ];
+            obstacles = [];
+            belts = [];
+            enemies = [];
+            traps = [];
+            powerUps = [];
+        }
+
+        // Game loop
+        function update() {
+            if (gameOver) {
+                ctx.fillStyle = '#ff0000';
+                ctx.font = '90px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+            if (gameWon) {
+                ctx.fillStyle = '#00ff00';
+                ctx.font = '90px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Congratulations Jon!', canvas.width / 2, canvas.height / 2);
+                endGameTimer += 1 / 60;
+                if (endGameTimer >= 5 && endGameImg.complete) {
+                    ctx.drawImage(endGameImg, 0, 0, canvas.width, canvas.height);
+                    return; // Stop game
+                }
+                requestAnimationFrame(update);
+                return;
+            }
+
+            // Camera logic
+            if (jones.x > canvas.width / 2 && jones.x < worldWidth - canvas.width / 2) {
+                cameraX = jones.x - canvas.width / 2;
+            }
+
+            // Draw background
+            if (bgImg.complete) {
+                ctx.drawImage(bgImg, 0 - cameraX, 0, worldWidth, canvas.height);
+            } else {
+                ctx.fillStyle = '#ff4500';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Draw ground
+            drawRect(0 - cameraX, ground.y, worldWidth, ground.height, ground.color);
+
+            // Move Jon
+            if (keys.left && jones.x > 0) jones.x -= jones.speed;
+            if (keys.right && jones.x < worldWidth - jones.width) jones.x += jones.speed;
+            if (keys.up) {
+                jones.vy = jones.jump;
+                jones.grounded = false;
+                keys.up = false;
+            }
+
+            // Gravity and collision
+            jones.vy += jones.gravity;
+            jones.y += jones.vy;
+            if (jones.y + jones.height > ground.y) {
+                jones.y = ground.y - jones.height;
+                jones.vy = 0;
+                jones.grounded = true;
+            }
+
+            // Handle invincibility timer
+            if (jones.invincible) {
+                jones.invincibleTime -= 1 / 60;
+                if (jones.invincibleTime <= 0) {
+                    jones.invincible = false;
+                }
+            }
+
+            // Draw Jones
+            if (jonesImg.complete) {
+                ctx.drawImage(jonesImg, jones.x - cameraX, jones.y, jones.width, jones.height);
+            } else {
+                drawRect(jones.x - cameraX, jones.y, jones.width, jones.height, '#fff');
+            }
+
+            // Boss logic
+            if (score >= 10 && bosses.length === 0) {
+                spawnBosses();
+            }
+
+            if (bosses.length > 0) {
+                bosses = bosses.filter(b => b.x + b.width > 0);
+                bosses.forEach(b => {
+                    b.x -= b.speed;
+                    const drawX = b.x - cameraX;
+                    if (drawX + b.width > 0 && drawX < canvas.width) {
+                        if (danaWhiteImg.complete) {
+                            ctx.drawImage(danaWhiteImg, drawX, b.y, b.width, b.height);
+                        } else {
+                            drawRect(drawX, b.y, b.width, b.height, '#ff8000');
+                        }
+                        if (collides(jones, b)) {
+                            if (jones.vy > 0 && jones.y + jones.height - jones.vy <= b.y) {
+                                b.x = -1000;
+                                bossHits++;
+                                jones.vy = -10;
+                                if (bossHits >= 3) gameWon = true;
+                            } else if (jones.y + jones.height > b.y && jones.vy >= 0 && !jones.invincible) {
+                                jones.x = 200;
+                                cameraX = 0;
+                                score = 0;
+                                bosses = [];
+                                obstacles = [spawnObstacle()];
+                                belts = [spawnBelt()];
+                                enemies = [spawnEnemy()];
+                                traps = [spawnTrap()];
+                                powerUps = [spawnPowerUp()];
+                                lastObstacleX = 400;
+                                lastEnemyX = 450;
+                                lastTrapX = 600;
+                                lastPowerUpX = 700;
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Obstacles (woman.png)
+                obstacles = obstacles.filter(o => o.x + o.width > cameraX - canvas.width);
+                if (jones.x > cameraX + canvas.width / 2 && jones.x < worldWidth - canvas.width && Math.random() < 0.02) {
+                    obstacles.push(spawnObstacle());
+                }
+                obstacles.forEach(o => {
+                    const drawX = o.x - cameraX;
+                    if (drawX + o.width > 0 && drawX < canvas.width) {
+                        if (womanImg.complete) {
+                            ctx.drawImage(womanImg, drawX, o.y, o.width, o.height);
+                        } else {
+                            drawRect(drawX, o.y, o.width, o.height, '#006400');
+                        }
+                        if (collides(jones, o)) {
+                            if (jones.vy > 0 && jones.y + jones.height - jones.vy <= o.y) {
+                                jones.y = o.y - jones.height;
+                                jones.vy = 0;
+                                jones.grounded = true;
+                            } else if (jones.y + jones.height > o.y + 10) {
+                                jones.x = o.x - jones.width;
+                            }
+                        }
+                    }
+                });
+
+                // UFC Belts
+                belts = belts.filter(b => !b.collected && b.x + b.width > cameraX - canvas.width);
+                if (jones.x > cameraX + canvas.width / 2 && jones.x < worldWidth - canvas.width && Math.random() < 0.02) {
+                    belts.push(spawnBelt());
+                }
+                belts.forEach(b => {
+                    if (!b.collected) {
+                        const drawX = b.x - cameraX;
+                        const drawY = b.y + Math.sin(Date.now() * 0.005) * 20;
+                        if (drawX + b.width > 0 && drawX < canvas.width) {
+                            if (beltImg.complete) {
+                                ctx.drawImage(beltImg, drawX, drawY, b.width, b.height);
+                            } else {
+                                drawRect(drawX, drawY, b.width, b.height, '#ff0000');
+                            }
+                            if (collides(jones, { x: b.x, y: drawY, width: b.width, height: b.height })) {
+                                b.collected = true;
+                                score += 1;
+                            }
+                        }
+                    }
+                });
+
+                // Enemies (paul-blart.png)
+                enemies = enemies.filter(e => e.x + e.width > cameraX - canvas.width);
+                if (jones.x > cameraX + canvas.width / 2 && jones.x < worldWidth - canvas.width && Math.random() < 0.01) {
+                    enemies.push(spawnEnemy());
+                }
+                enemies.forEach(e => {
+                    const drawX = e.x - cameraX;
+                    if (drawX + e.width > 0 && drawX < canvas.width) {
+                        if (blartImg.complete) {
+                            ctx.drawImage(blartImg, drawX, e.y, e.width, e.height);
+                        } else {
+                            drawRect(drawX, e.y, e.width, e.height, '#8b4513');
+                        }
+                        if (collides(jones, e) && jones.y + jones.height > e.y && jones.vy >= 0 && !jones.invincible) {
+                            jones.x = 200;
+                            cameraX = 0;
+                            score = 0;
+                            obstacles = [spawnObstacle()];
+                            belts = [spawnBelt()];
+                            enemies = [spawnEnemy()];
+                            traps = [spawnTrap()];
+                            powerUps = [spawnPowerUp()];
+                            lastObstacleX = 400;
+                            lastEnemyX = 450;
+                            lastTrapX = 600;
+                            lastPowerUpX = 700;
+                        }
+                    }
+                });
+
+                // Traps (gods-test.png)
+                traps = traps.filter(t => t.x + t.width > cameraX - canvas.width);
+                if (jones.x > cameraX + canvas.width / 2 && jones.x < worldWidth - canvas.width && Math.random() < 0.01) {
+                    traps.push(spawnTrap());
+                }
+                traps.forEach(t => {
+                    const drawX = t.x - cameraX;
+                    if (drawX + t.width > 0 && drawX < canvas.width) {
+                        if (godsTestImg.complete) {
+                            ctx.drawImage(godsTestImg, drawX, t.y, t.width, t.height);
+                        } else {
+                            drawRect(drawX, t.y, t.width, t.height, '#ff00ff');
+                        }
+                        if (collides(jones, t) && jones.y + jones.height > t.y && jones.vy >= 0 && !jones.invincible) {
+                            score -= 1;
+                            t.x = -1000;
+                            if (score < 0) gameOver = true;
+                        }
+                    }
+                });
+
+                // Power-Ups (steroids.png)
+                powerUps = powerUps.filter(p => !p.collected && p.x + p.width > cameraX - canvas.width);
+                if (jones.x > cameraX + canvas.width / 2 && jones.x < worldWidth - canvas.width && Math.random() < 0.005) {
+                    powerUps.push(spawnPowerUp());
+                }
+                powerUps.forEach(p => {
+                    if (!p.collected) {
+                        const drawX = p.x - cameraX;
+                        const drawY = p.y + Math.sin(Date.now() * 0.005) * 20;
+                        if (drawX + p.width > 0 && drawX < canvas.width) {
+                            if (steroidsImg.complete) {
+                                ctx.drawImage(steroidsImg, drawX, drawY, p.width, p.height);
+                            } else {
+                                drawRect(drawX, drawY, p.width, p.height, '#00ffff');
+                            }
+                            if (collides(jones, { x: p.x, y: drawY, width: p.width, height: p.height })) {
+                                p.collected = true;
+                                jones.invincible = true;
+                                jones.invincibleTime = 5;
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Score
+            ctx.fillStyle = '#000';
+            ctx.font = '30px Arial';
+            ctx.fillText(`Belts: ${score}`, 15, 45);
+
+            requestAnimationFrame(update);
+        }
+
+        update();
+    </script>
+</body>
+</html>
